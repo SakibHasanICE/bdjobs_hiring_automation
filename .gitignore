@@ -1,0 +1,14 @@
+venv/
+venv
+.env/
+.env
+__pycache__/
+*.pyc
+
+downloads/
+screenshots/
+logs/
+
+*.pdf
+*.doc
+*.docx
