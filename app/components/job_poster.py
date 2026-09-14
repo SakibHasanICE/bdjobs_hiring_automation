@@ -58,10 +58,7 @@ class JobPoster:
 
         # 2. Job Location Dropdown (Structural Locator)
         if location := job_data.get("job_location"):
-            # input#jobLocation carries an "input-hidden" class and has no on-screen
-            # box until the field is activated - clicking it directly throws
-            # "outside of the viewport" even with force=True. Activate the visible
-            # widget first (the "Add more" trigger next to the location chips).
+
             trigger = self.page.get_by_text("Add more", exact=False).first
             if await trigger.count() == 0:
                 # Fallback: click the field's own container if "Add more" isn't present
@@ -80,11 +77,7 @@ class JobPoster:
             await self.page.keyboard.type(location, delay=100)
             await self.page.wait_for_timeout(1500) # Wait for dropdown results to render
 
-            # Real markup (confirmed via DOM dump): each suggestion is
-            # <button class="location-option"><span class="location-name"><strong>...</strong></span></button>
-            # Prefer the option whose visible text is an exact match (e.g. plain
-            # "Dhaka" rather than "Dhaka (Dhaka Court)"); otherwise take the top
-            # suggestion, same intent as the original "press Enter" behaviour.
+
             option = self.page.locator("button.location-option").filter(
                 has=self.page.locator(f"span.location-name:text-is('{location}')")
             ).first
@@ -92,13 +85,7 @@ class JobPoster:
                 option = self.page.locator("button.location-option").first
             await option.click(force=True)
 
-            # Make sure the panel actually closed - if it's left open, it
-            # intercepts clicks in every step after this one (Deadline,
-            # Salary, and - confirmed live - even the Step 2 "Add Additional
-            # Requirements" button two pages later) and silently swallows
-            # them. A bare Escape + fixed wait wasn't reliable enough for
-            # this widget, so use the shared cleanup helper instead, which
-            # also waits for the option list to actually disappear.
+
             await self._dismiss_stray_overlays()
             
         # 3. Select Deadline (Date Picker)
@@ -106,8 +93,7 @@ class JobPoster:
             deadline_input_selector = "input[placeholder*='Select Deadline']"
             deadline_input = self.page.locator(deadline_input_selector).first
 
-            # The icon is the real click target that opens the picker overlay
-            # (clicking the plain <input> alone does not open it).
+
             calendar_icon = self.page.locator("span.icon-calendar, .icon-calendar").first
             if await calendar_icon.count() > 0:
                 await calendar_icon.scroll_into_view_if_needed()
@@ -119,14 +105,7 @@ class JobPoster:
             await self.page.wait_for_timeout(600)
             await self.page.screenshot(path="debug_deadline_calendar_open.png", full_page=True)
 
-            # PREVIOUS BUG #1: this scan filtered elements with `el.offsetParent
-            # !== null`, which is always null for position:fixed elements -
-            # exactly what a CDK overlay pane (.cdk-overlay-pane, already in the
-            # selector list below) normally is. That silently hid the real
-            # calendar panel from this diagnostic even while it was visibly open
-            # on screen (confirmed by the screenshot), so we only ever "found"
-            # the closed toggle icon. Use getBoundingClientRect() instead, which
-            # doesn't have that blind spot.
+
             calendar_snapshot = await self.page.evaluate(
                 """
                 () => {
@@ -197,21 +176,7 @@ class JobPoster:
                     "recognize - see debug_deadline_calendar_open.png."
                 )
 
-            # PREVIOUS BUG #2 (the actual root cause of the original failure):
-            # after opening the calendar and screenshotting it for diagnostics,
-            # the old code went straight to Escape - it never clicked an actual
-            # day. Now confirmed via the diagnostic dump: this is ng-bootstrap's
-            # <ngb-datepicker>. Its markup gives us two much more reliable
-            # anchors than guessing at visible text:
-            #   1. Month/year navigation is two native <select> elements
-            #      (aria-label="Select month" / "Select year") - use
-            #      select_option(), not clicking chevrons or text.
-            #   2. Each day cell has an exact, unambiguous aria-label like
-            #      "Tuesday, September 8, 2026" on the role="gridcell" div,
-            #      and disabled/adjacent-month cells are literally marked
-            #      class="ngb-dp-day disabled" - no guessing needed.
-            #
-            # deadline is "MM/DD/YYYY" (see mock_internal_job in main.py).
+
             target_date = datetime.strptime(deadline, "%m/%d/%Y")
 
             month_select = self.page.locator("select[aria-label='Select month']").first
@@ -231,9 +196,7 @@ class JobPoster:
             await year_select.select_option(value=str(target_date.year))
             await self.page.wait_for_timeout(300)
 
-            # Build the exact aria-label ngb-bootstrap renders for this date,
-            # e.g. "Friday, September 25, 2026" - matches the disabled-cell
-            # samples seen in the diagnostic dump ("Saturday, September 5, 2026").
+
             target_aria_label = target_date.strftime("%A, %B ") + str(target_date.day) + target_date.strftime(", %Y")
 
             day_cell = self.page.locator(
@@ -249,18 +212,14 @@ class JobPoster:
                     f"or the aria-label format has changed."
                 )
 
-            # Click the inner ngbDatepickerDayView element (the actual click
-            # target Angular listens on), not just the outer gridcell wrapper.
+
             day_view = day_cell.locator("[ngbdatepickerdayview]").first
             target = day_view if await day_view.count() > 0 else day_cell
             await target.scroll_into_view_if_needed()
             await target.click(force=True)
             await self.page.wait_for_timeout(400)
 
-            # Verify, don't trust the click blindly: the input should now hold
-            # a non-empty value and the "Deadline can't be empty" error should
-            # be gone. Raise clearly instead of silently moving on to a form
-            # that's still missing a required field.
+
             value = (await deadline_input.input_value()).strip()
             if not value:
                 await self.page.screenshot(path="error_deadline_not_set.png", full_page=True)
@@ -279,12 +238,7 @@ class JobPoster:
         
         # 1. Job Responsibilities & Context
         if resp := job_data.get("job_responsibilities"):
-            # The old comma-separated selector's .first picked whichever matching
-            # element came first in raw DOM order - if another (hidden) rich-text
-            # editor exists elsewhere in the wizard, that's what got grabbed instead
-            # of this field, causing "element is not visible" timeouts. Anchor the
-            # lookup to the "Job Responsibilities" heading itself so we always get
-            # the right one regardless of how many editors exist on the page.
+
             editor = self.page.locator(
                 "xpath=//*[contains(text(),'Job Responsibilities')]"
                 "/ancestor::*[.//*[contains(@class,'ql-editor') or @contenteditable='true']][1]"
@@ -293,10 +247,7 @@ class JobPoster:
             await editor.scroll_into_view_if_needed()
             await editor.click(force=True)
             
-            # Using evaluate to set innerText bypasses complex keyboard event listeners on
-            # rich-text editors. Pass the text as an evaluate() argument (not string-
-            # interpolated into the JS) so backticks / ${...} in the responsibilities
-            # text can't break the generated script.
+ 
             await editor.evaluate(
                 "(el, text) => { el.innerText = text; "
                 "el.dispatchEvent(new Event('input', { bubbles: true })); }",
@@ -305,8 +256,7 @@ class JobPoster:
             
         # 2. Monthly Salary
         if salary := job_data.get("salary"):
-            # Confirmed via DOM dump: id="Minimum" / id="Maximum" are globally
-            # unique and visible - no need for the fragile ancestor-xpath scoping.
+
             if min_sal := salary.get("min"):
                 min_input = self.page.locator("#Minimum")
                 await min_input.scroll_into_view_if_needed()
@@ -332,9 +282,6 @@ class JobPoster:
         await add_btn.click(force=True)
         await self.page.wait_for_timeout(800)
 
-        # 1. Multi-select benefit chips (T/A, Provident fund, Insurance, etc.)
-        # These are unique, one-off labels unlikely to repeat elsewhere on the
-        # page, so a plain exact-text match is enough - no special scoping needed.
         print(f"Compensation modal: selecting benefit chips {comp.get('benefits', [])}...")
         for label in comp.get("benefits", []):
             chip = self.page.get_by_text(label, exact=True).first
@@ -358,9 +305,7 @@ class JobPoster:
             if await option.count() > 0:
                 await option.click(force=True)
 
-        # 4. Festival Bonus - this is a native <select> element (confirmed: the
-        # placeholder resolves to an <option value="0">), not a custom dropdown,
-        # so it needs select_option() rather than a click.
+
         if bonus := comp.get("festival_bonus"):
             print(f"Compensation modal: selecting festival bonus '{bonus}'...")
             festival_select = self.page.locator(
@@ -375,12 +320,7 @@ class JobPoster:
                 except Exception as select_error:
                     print(f"Could not select Festival Bonus '{bonus_str}': {select_error}")
 
-        # 5. Other Benefits (rich text editor). The ancestor-based scoping that
-        # worked for Job Responsibilities can grab the wrong editor here if the
-        # nearest common ancestor is the whole modal (which may still contain
-        # other hidden editors earlier in DOM order). Instead, walk forward in
-        # document order from the "Other Benefits" heading and take the very
-        # next editor-like element - matches this form's top-to-bottom layout.
+
         if other := comp.get("other_benefits"):
             print("Compensation modal: locating Other Benefits editor...")
             editor = self.page.locator(
@@ -397,9 +337,7 @@ class JobPoster:
             )
             print("Compensation modal: Other Benefits filled.")
 
-        # 6. Save - anchor forward from "Other Benefits" too, so we land on
-        # this modal's own Save button rather than some unrelated "Save"
-        # element elsewhere in the page's DOM.
+
         print("Compensation modal: locating Save button...")
         save_btn = self.page.locator(
             "xpath=//*[contains(text(),'Other Benefits')]"
@@ -410,12 +348,6 @@ class JobPoster:
         await save_btn.scroll_into_view_if_needed()
         await save_btn.click(force=True)
 
-        # Don't just assume the modal closed after a fixed pause - if it silently
-        # stayed open, it will intercept every subsequent click (including the
-        # Step 1 -> Step 2 "Continue" button) without any visible error. Watch
-        # the actual editable field itself (not the "Other Benefits" text -
-        # that heading is also part of the page's saved summary card once the
-        # modal closes, so it never goes hidden and would always look "stuck").
         modal_check_target = editor if other else save_btn
         try:
             await modal_check_target.wait_for(state="hidden", timeout=5000)
@@ -442,9 +374,7 @@ class JobPoster:
         checks - so a mis-click like that fails silently instead of raising.
         """
 
-        # Target elements containing "Continue" or "Next", but only ones that are
-        # actually visible right now - not a same-text button belonging to some
-        # other (hidden) step's markup elsewhere in the DOM.
+
         candidates = self.page.get_by_text(re.compile("Continue|Next", re.IGNORECASE))
         count = await candidates.count()
         visible_indices = [i for i in range(count) if await candidates.nth(i).is_visible()]
@@ -469,12 +399,7 @@ class JobPoster:
 
         continue_btn = candidates.nth(visible_indices[-1])
 
-        # A force=True click bypasses Playwright's normal actionability checks -
-        # including "is this element enabled". If the app disables Continue via a
-        # client-side validation rule (form invalid, hidden required field, etc.),
-        # a forced click typically no-ops: no exception, no navigation, nothing.
-        # That's indistinguishable from "the click just didn't register" unless
-        # we check for it explicitly.
+
         is_enabled = await continue_btn.is_enabled()
         aria_disabled = await continue_btn.get_attribute("aria-disabled")
         print(f"proceed_to_next_step: Continue button is_enabled={is_enabled} aria-disabled={aria_disabled}")
@@ -485,11 +410,7 @@ class JobPoster:
                 "disabled control usually does nothing."
             )
 
-        # Watch network responses and JS errors during the click, since "briefly
-        # reaches the next step then bounces back to this one" usually means the
-        # click triggers a save/validate API call, the app optimistically shows
-        # the next step, and then reverts when that call comes back with an
-        # error - which a screenshot taken after the fact won't show at all.
+
         failed_responses = []
         console_errors = []
         body_read_tasks = []
@@ -503,9 +424,7 @@ class JobPoster:
 
         def _on_response(response):
             if response.status >= 400:
-                # response.text() is async and can't be awaited inside this sync
-                # callback, so schedule it and await all of them together below,
-                # before we print the summary.
+
                 body_read_tasks.append(asyncio.create_task(_capture_body(response)))
 
         def _on_pageerror(exc):
@@ -520,19 +439,14 @@ class JobPoster:
         self.page.on("console", _on_console)
 
         try:
-            # Scroll and force the click in case a sticky footer or chat widget is overlapping it
+       
             await continue_btn.scroll_into_view_if_needed()
             await continue_btn.click(force=True)
 
-            # Grab a screenshot the instant after clicking, before any of our own
-            # waits run - if the app shows a transient validation toast/snackbar
-            # ("please complete X"), it will very likely have faded by the time we
-            # screenshot later after a failed wait_for, several seconds on.
+
             await self.page.screenshot(path="debug_immediately_after_continue_click.png", full_page=True)
 
-            # A second checkpoint partway through, in case the app shows Step 2
-            # briefly before an API error bounces it back to Step 1 - a single
-            # "before" and "after" screenshot would miss that entirely.
+
             await self.page.wait_for_timeout(1500)
             await self.page.screenshot(path="debug_1500ms_after_continue_click.png", full_page=True)
 
@@ -598,9 +512,7 @@ class JobPoster:
         Requirements).
         """
         await self.page.keyboard.press("Escape")
-        # Click a neutral, always-present part of the page to force a blur/
-        # close on whatever custom widget still thinks it's open - Escape
-        # alone isn't reliably bound to this particular Angular widget.
+  
         neutral = self.page.get_by_text("Post a Job", exact=False).first
         if await neutral.count() > 0:
             try:
@@ -830,24 +742,7 @@ class JobPoster:
         verified against the ACTUAL chip container instead of only "did the
         input go blank" - see BUG FIX #4 below for why that mattered.
         """
-        # BUG FIX #7 (this run - "no error logged, but the final Step 3
-        # review screen shows 'Skills & Expertise: Not Added'"): capture
-        # which chips already exist in this widget's container BEFORE we
-        # type/click anything. The previous version (BUG FIX #6) checked
-        # for success by testing whether the container's raw text contained
-        # the skill name - but that container also holds *other* form
-        # fields lower on the same row (confirmed by the earlier "Add
-        # Additional Requirements" button sitting directly under "Skills &
-        # Area of expertise" in the same block), and the Additional
-        # Requirements / Job Responsibilities copy in this project's own
-        # mock data literally contains "PostgreSQL", "Django", and "Docker"
-        # as plain words. So the check kept passing - not because a chip
-        # had been added, but because that unrelated paragraph elsewhere in
-        # the same container happened to share vocabulary with the skill
-        # being searched for. Diffing against a "before" snapshot fixes
-        # this: only a NEWLY appeared chip counts, so pre-existing/unrelated
-        # text that was already there (and would already be in the
-        # baseline) can never be mistaken for a fresh commit.
+  
         baseline_chip_texts = set()
         if heading_text:
             baseline_container = await self._get_tag_container(heading_text)
@@ -866,54 +761,33 @@ class JobPoster:
             await input_el.wait_for(state="visible", timeout=5000)
             await input_el.click(force=True)
 
-            # BUG FIX #1: force the field empty before typing the next tag.
+  
             await input_el.press("Control+A")
             await input_el.press("Backspace")
             leftover = await input_el.input_value()
             if leftover:
-                # Some of these Angular tag widgets restore a stray character
-                # on refocus - fall back to manual backspacing until it's
-                # actually empty rather than trusting select-all+delete once.
+
                 for _ in range(len(leftover) + 5):
                     await self.page.keyboard.press("Backspace")
 
-            # BUG FIX (cosmetic): typing immediately after clearing can race
-            # the widget's own focus/clear repaint, which is a plausible
-            # cause of the "starts writing from the second character" visual
-            # glitch - the first keystroke lands, then gets visually
-            # overwritten by a re-render that hasn't settled yet. A short
-            # pause here lets that settle before we start typing.
+
             await self.page.wait_for_timeout(150)
 
         await self.page.keyboard.type(value, delay=100)
         await self.page.wait_for_timeout(150)
 
-        # DIAGNOSTIC: settle whether keystrokes are landing intact. This
-        # directly checks the "starts writing from the second character"
-        # symptom you noticed live - if the box doesn't read exactly what we
-        # typed, the backend search itself may be receiving a truncated
-        # query (which would explain 'Information Technology' matching
-        # nothing at all, and 'Software' only fuzzy-matching because a
-        # truncated 'oftware' still happens to be a substring of it).
         if input_el is not None:
             actual_typed = (await input_el.input_value())
             if actual_typed != value:
                 print(f"  [_add_tag_via_suggestion:{value!r}] WARNING: input reads {actual_typed!r} after typing, not the full value")
 
-        # BUG FIX #2b/#2c: matching is now delegated to the shared
-        # `_find_best_suggestion_match` helper (see its docstring) - this
-        # used to be inline here with the exact same logic; extracting it
-        # let the Degree Major/Subject field reuse it too instead of the
-        # fragile page-wide lookup it had before.
+
         matched_text, matched_panel = await self._find_best_suggestion_match(
             value, log_label=f"_add_tag_via_suggestion:{value}"
         )
 
         if matched_text is None:
-            # No suggestion rendered in the real panel - clear the field
-            # completely (not a blind fixed-count backspace, which under-
-            # corrects if the box holds more than we expect) so the raw text
-            # can't bleed into whatever gets typed next.
+
             if input_el is not None:
                 await input_el.click(force=True)
                 await input_el.press("Control+A")
@@ -923,49 +797,7 @@ class JobPoster:
                     await self.page.keyboard.press("Backspace")
             raise RuntimeError(f"No autocomplete suggestion appeared for '{value}'")
 
-        # BUG FIX #3b: the previous version selected via ArrowDown+Enter,
-        # then - if that didn't visibly commit within 400ms - fell back to
-        # re-resolving `option_locator.nth(target_index)` and clicking that.
-        # That re-resolution is INDEX-based, so if the panel had re-rendered
-        # or reordered in between (very plausible right after a keyboard
-        # interaction with it), index N could now point at a DIFFERENT
-        # option than the one we originally matched - a very likely
-        # explanation for skills ending up with BOTH a plain tag ('django')
-        # AND an unrelated compound one ('Python Django') for a single
-        # requested skill. Simplify to one click site, targeted by the exact
-        # MATCHED TEXT (not a position), so it can't silently drift to a
-        # different element.
-        #
-        # BUG FIX #4 (this run - "skills chosen wrong again"): the OLD
-        # fallback here was `target_option.click(force=True)`. force=True
-        # only skips PLAYWRIGHT's own actionability checks (visible,
-        # stable, not covered) - it does NOT change which element the real
-        # browser click lands on. The browser always delivers a click to
-        # whatever is topmost at those pixel coordinates, so if something
-        # is genuinely overlapping the real option (confirmed elsewhere in
-        # this file for the Additional Requirements button, caused by a
-        # leftover Job Location overlay), a force click silently lands on
-        # THAT interceptor instead. Clear known stray overlays and retry a
-        # normal click instead of forcing through whatever's in the way.
-        # BUG FIX #9 (this run - "goes to the right suggestion, highlights
-        # it, but doesn't select it, then just moves on to the next skill"):
-        # get_by_text(matched_text, exact=True) matches whichever element's
-        # OWN text content is exactly matched_text - on a typeahead panel
-        # that bolds the matching portion (e.g. "Python <b>Django</b>"),
-        # that's very often the innermost <b>/<span> wrapping just that
-        # substring, NOT the actual clickable row (a <button>/<li>/
-        # [role='option']) the framework's click handler is bound to.
-        # Clicking that decorative inner node should still bubble up to a
-        # real (click) handler on the row - but if the row's real handler is
-        # instead bound to (mousedown) (common in ng-bootstrap-style
-        # typeaheads, which drive selection off an "active" item rather
-        # than a plain click), or if a hover-triggered reflow shifts the
-        # inner node's coordinates a few pixels after Playwright resolves
-        # them, the click can land but never fire what actually commits the
-        # tag - fully consistent with what you're seeing (the correct item
-        # visibly highlights, then nothing happens). Climb from the matched
-        # text up to its nearest interactive ancestor first, so the click
-        # always targets the real option row rather than a label fragment.
+ 
         matched_node = matched_panel.get_by_text(matched_text, exact=True).first
         target_option = matched_node.locator(
             "xpath=ancestor-or-self::*[self::button or self::li or @role='option'][1]"
@@ -979,28 +811,7 @@ class JobPoster:
             await self._dismiss_stray_overlays()
             await target_option.click(timeout=5000)
 
-        # BUG FIX #4b (previous run): verifying success by "did the input go
-        # blank" alone can't tell a genuine commit apart from a click that
-        # silently missed - both look identical from the input's point of
-        # view until something ELSE (e.g. a later, unrelated blur) causes
-        # the widget to auto-resolve whatever's left.
-        #
-        # BUG FIX #5 (this run - "skills field ends up completely empty,
-        # but nothing is reported as failed"): the #4b fix above checked
-        # `container.inner_text()` for the target word, but the SAME
-        # container that holds the committed chips ALSO holds the still-
-        # open suggestion dropdown while it's rendering - and that dropdown
-        # obviously already contains the word we're searching for (that's
-        # the whole point of a suggestion list). So the check was passing
-        # immediately, before any real commit happened, purely because it
-        # was reading the dropdown's own option text back to itself. This
-        # is why every skill logged as "successful" yet the field ended up
-        # empty in the screenshot - the click never actually committed
-        # anything, we just stopped checking for a real reason.
-        # Fix: wait for the suggestion panel itself to close first, THEN
-        # only look at actual chip elements (identified the same way
-        # `_clear_existing_tags` finds them - by their own remove/× control)
-        # for the target text, never the raw container text.
+
         committed = False
         if heading_text:
             try:
@@ -1010,23 +821,7 @@ class JobPoster:
             except Exception:
                 pass  # already closed, or stuck open - check chips either way
 
-            # BUG FIX #6 (previous run - "chip clearly visible on screen /
-            # confirmed in screenshot, but logged as FAILED anyway"): the
-            # version before this one located a remove/close icon inside the
-            # chip, then walked up EXACTLY ONE parent (`xpath=..`) to read
-            # that chip's text - too shallow for this widget's real markup,
-            # which nests the close icon one level deeper. That produced
-            # false FAILUREs.
-            #
-            # BUG FIX #7 (this run - the opposite problem: FALSE SUCCESS):
-            # simplifying #6 to "does the whole container's text contain the
-            # skill name" swung too far the other way - see the long comment
-            # above `baseline_chip_texts` for why that container's text can
-            # contain a skill's name from an entirely unrelated field.
-            # `_get_chip_texts` (capped-climb version of the #6 approach)
-            # plus this before/after diff fixes both problems at once: only
-            # a genuinely NEW chip - not shallow-icon false negatives, not
-            # unrelated-paragraph false positives - counts as committed.
+
             container = await self._get_tag_container(heading_text)
             target_lower = matched_text.lower()
             value_lower = value.lower()
@@ -1045,16 +840,7 @@ class JobPoster:
                     break
 
         if not committed and heading_text:
-            # BUG FIX #9b (fallback): if the click genuinely didn't commit
-            # anything - not an interception (already retried above), just
-            # a click that visually highlighted the right row and did
-            # nothing else - this project already confirmed the site runs
-            # on ng-bootstrap (the deadline picker is <ngb-datepicker>).
-            # ng-bootstrap's typeahead selects its currently ACTIVE item via
-            # the keyboard (Enter), independent of mouse clicks, and the
-            # matched item was already the one visibly highlighted in your
-            # screenshot - i.e. already "active" - before we ever touched
-            # it. Try that native path once before giving up entirely.
+            
             print(f"  [_add_tag_via_suggestion:{value!r}] click didn't commit; trying Enter as a fallback.")
             await self.page.keyboard.press("Enter")
             await self.page.wait_for_timeout(400)
@@ -1067,9 +853,7 @@ class JobPoster:
                     break
 
         if not committed:
-            # Don't leave uncommitted text sitting in the field - as noted
-            # above, that leftover text is exactly what caused a mismatched
-            # chip to appear later on an unrelated action.
+
             if input_el is not None:
                 await input_el.click(force=True)
                 await input_el.press("Control+A")
@@ -1089,12 +873,7 @@ class JobPoster:
         for the full default timeout and aborting every field after it.
         """
 
-        # Fail fast: if the wizard never actually left Step 1 (e.g. the Continue
-        # click from Step 1 was swallowed by a still-open modal), NONE of the
-        # fields below will ever be found. Rather than let each one time out
-        # independently for a total of several minutes and then still report
-        # success, check for a Step-2-only anchor once, up front, with a short
-        # timeout, and raise clearly if it's missing.
+
         try:
             await self.page.get_by_text("Preferred Gender", exact=False).first.wait_for(
                 state="visible", timeout=8000
@@ -1111,9 +890,7 @@ class JobPoster:
         # 1. Preferred Gender
         if gender := job_data.get("gender"):
             try:
-                # exact=False -> substring match, so a label rendered as
-                # "Preferred Gender*" (required-field asterisk in the same text
-                # node) still resolves. text='Preferred Gender' would not.
+  
                 label = self.page.get_by_text("Preferred Gender", exact=False).first
                 await label.scroll_into_view_if_needed()
                 await label.locator("xpath=..").click(force=True)
@@ -1146,28 +923,10 @@ class JobPoster:
                     print(f"Step 2 - Maximum age FAILED: {e}")
                     await self.page.screenshot(path="error_step2_max_age.png", full_page=True)
 
-        # 3. Educational Qualification - THREE cascading controls, confirmed by
-        # the earlier failure: get_by_text("Select Degree Level") resolved to
-        # <option disabled hidden value="-1">Select Degree Level</option>,
-        # which means this is a real native <select> (the hidden placeholder
-        # option), not a custom dropdown - clicking the option itself throws
-        # "Element is not visible" because it's the disabled/hidden placeholder.
-        # The fix is the same select_option() approach already used for the
-        # ngb-datepicker month/year controls in Step 1: target the <select>
-        # itself, not text inside it.
+
         if degree_level := job_data.get("degree_level"):
             try:
-                # BUG FIX ("subject still shows the same value across runs,
-                # looks like it's choosing wrong again"): unlike Skills and
-                # Preferred Industries, this Degree entry list never got its
-                # own "start from empty" pass, even though the same root
-                # cause applies here too - BDJobs persists this saved draft
-                # across runs, so a chip a previous (including an older,
-                # buggier) run already added just sits there. That made a
-                # perfectly correct fresh pick indistinguishable from a
-                # stale leftover, since both render as the same text. Clear
-                # any existing Degree chip first so this run's result is
-                # actually its own.
+               
                 await self._clear_existing_tags("Degree")
 
                 degree_level_select = self.page.locator(
@@ -1176,10 +935,7 @@ class JobPoster:
                 await degree_level_select.select_option(label=degree_level)
                 await self.page.wait_for_timeout(500)
 
-                # Choosing a level reveals a second cascading <select>, "Select
-                # Degree Name" (options depend on the level just chosen - e.g.
-                # "Bachelor of Science (BSc)" only appears once "Bachelor/Honors"
-                # is selected, per the screenshots).
+
                 if degree_name := job_data.get("education_level"):
                     degree_name_select = self.page.locator(
                         "xpath=//select[option[normalize-space(text())='Select Degree Name']]"
@@ -1188,14 +944,7 @@ class JobPoster:
                     await degree_name_select.select_option(label=degree_name)
                     await self.page.wait_for_timeout(500)
 
-                    # Choosing a degree name reveals a free-text Major/Subject
-                    # field with a suggestion list (NOT a <select> - a typed
-                    # search, same interaction pattern as Job Location in Step
-                    # 1). We don't have a confirmed selector for its <input>
-                    # (no DOM dump captured for it yet), so this targets the
-                    # last visible text input in the Degree row as a best
-                    # guess and fails loudly with a screenshot if that's wrong,
-                    # rather than silently mis-typing into something else.
+
                     if degree_title := job_data.get("degree_title"):
                         major_input = self.page.locator(
                             "input[placeholder*='Search' i], "
@@ -1211,19 +960,7 @@ class JobPoster:
                         await self.page.keyboard.type(degree_title, delay=100)
                         await self.page.wait_for_timeout(300)
 
-                        # BUG FIX ("subject choose wrong" - recurring): this
-                        # used to search the ENTIRE page with get_by_text(),
-                        # first for an exact match of `degree_title` alone,
-                        # then - since the real suggestion renders as a full
-                        # compound label (e.g. "Bachelor of Science (BSc) in
-                        # Computer Science & Engineering"), not the bare
-                        # major name - falling back to get_by_text(first
-                        # word, exact=False), which is free to match ANY
-                        # element anywhere on the page containing that word,
-                        # not just the genuine open suggestion. Use the same
-                        # panel-scoped matcher already proven for
-                        # Skills/Industries instead, so this can only ever
-                        # pick a real, currently-open suggestion.
+                        
                         matched_text, matched_panel = await self._find_best_suggestion_match(
                             degree_title, log_label="degree_title"
                         )
@@ -1239,11 +976,7 @@ class JobPoster:
                             await suggestion.click(timeout=5000)
                         await self.page.wait_for_timeout(300)
 
-                # "+ Add Degree" appears to commit/append this entry (screenshots
-                # show it enabled once a level+name are chosen). Best-effort only:
-                # if it's not present or disabled, the level/name/major selections
-                # above may already be saved live via their own change events, so
-                # this doesn't raise on failure.
+
                 add_degree_btn = self.page.get_by_text("Add Degree", exact=False).first
                 if await add_degree_btn.count() > 0 and await add_degree_btn.is_enabled():
                     await add_degree_btn.click(force=True)
@@ -1258,22 +991,7 @@ class JobPoster:
                 wants_experience = exp.get("required", True)
                 toggle_text = "Experience Required" if wants_experience else "No Experience Required"
 
-                # CRITICAL BUG FIX: get_by_text(toggle_text, exact=False) does
-                # a SUBSTRING match, and "No Experience Required" itself
-                # contains the substring "Experience Required" - so when
-                # wants_experience is True, `.first` was ambiguous between
-                # the two tab buttons and (per the last run's screenshot,
-                # which showed "No Experience Required" highlighted as
-                # active instead of "Experience Required") was landing on
-                # the WRONG tab. That silently hid the whole Year of
-                # Experience / Industry panel again, which explains the
-                # "not visible" / "disabled" hangs on Minimum and Maximum
-                # below, the industries widget looking wrong, AND is a
-                # likely source of the reported screen flicker (the panel
-                # toggling to a state nothing else in this method expects).
-                # Fix: match a text NODE whose own content is EXACTLY the
-                # target label - "No Experience Required" is a different
-                # (longer) exact text node, so this can no longer collide.
+                
                 toggle = self.page.locator(
                     f"xpath=//text()[normalize-space()='{toggle_text}']/parent::*"
                 ).first
@@ -1282,11 +1000,7 @@ class JobPoster:
                 await toggle.click(force=True)
                 await self.page.wait_for_timeout(800)
 
-                # Best-effort confirmation this actually landed on the right
-                # tab - not a hard assertion (we don't know the real
-                # "active" class name), just a diagnostic so a wrong click
-                # is visible in the log instead of silently cascading into
-                # five more failures like last time.
+ 
                 try:
                     active_class = await toggle.get_attribute("class") or ""
                     print(f"Experience toggle '{toggle_text}' clicked, class='{active_class}'")
@@ -1299,25 +1013,7 @@ class JobPoster:
                         if not value:
                             continue
                         try:
-                            # Confirmed via the last run's error log: this IS
-                            # a real Angular reactive-form <select> (visible
-                            # attributes included formcontrolname=
-                            # "maximumExperience", the "disabled" attribute,
-                            # and Bootstrap's "form-select" class) - but it
-                            # can be visually hidden or marked disabled while
-                            # its custom-styled wrapper is what the user
-                            # actually sees, which is why
-                            # scroll_into_view_if_needed()/select_option()
-                            # hung waiting for "visible"/"enabled" states
-                            # that this element may never reach through
-                            # normal DOM interaction. Setting .value directly
-                            # via JS and dispatching real 'change'/'input'
-                            # events updates Angular's FormControl the same
-                            # way a user's selection would, without needing
-                            # Playwright's own visibility/enabled checks -
-                            # and it also works on the (initially disabled)
-                            # Maximum select once Minimum's change event has
-                            # let Angular's cascade logic enable it.
+                            
                             field = self.page.locator(
                                 f"xpath=//select[option[normalize-space(text())='{label}']]"
                             ).first
@@ -1343,10 +1039,7 @@ class JobPoster:
                                         f"(available: {result.get('options')})"
                                     )
                             else:
-                                # Fall back to a typed/searchable combo box,
-                                # same click-the-suggestion pattern as
-                                # Skills/Industries, in case this control
-                                # isn't a native <select> after all.
+
                                 trigger = self.page.locator(
                                     f"xpath=//text()[normalize-space()='{label}']/parent::*"
                                 ).first
@@ -1375,15 +1068,7 @@ class JobPoster:
                 print(f"Step 2 - Experience Requirements FAILED: {e}")
                 await self.page.screenshot(path="error_step2_experience.png", full_page=True)
 
-        # 5. Preferred Industries (tag input with autocomplete).
-        # BUG FIX: per the confirmed current screenshot, this field starts as
-        # a plain "Add Industry" text input - there is no "Add more" trigger
-        # to click first. The old code always clicked "Add more" before
-        # typing, which either mis-clicked something unrelated or left focus
-        # nowhere useful, so every industry typed landed with no suggestion.
-        # Try the direct input first; only fall back to an "Add more" trigger
-        # for slots after the first (some tag widgets on this site do reveal
-        # that button only once one chip already exists).
+
         if industries := job_data.get("preferred_industries"):
             await self._clear_existing_tags("Which industry you prefer candidates to have experience")
 
@@ -1413,14 +1098,7 @@ class JobPoster:
                         path=f"error_step2_industry_{safe_name}.png", full_page=True
                     )
 
-        # 6. Skills & Area of expertise (tag input with autocomplete).
-        # BUG FIX: the previous version typed each skill and pressed Enter,
-        # which never committed a chip - the widget requires clicking the
-        # rendered suggestion instead. That's why the field ended up showing
-        # every skill run together with no spaces ("PythonDjangoFastAPI
-        # PostgreSQL") and "No skill found!": each Enter was a no-op, so the
-        # next skill's keystrokes just kept appending to the same uncommitted
-        # text.
+
         if skills := job_data.get("skills"):
             await self._clear_existing_tags("Skills & Area of expertise")
 
@@ -1442,27 +1120,10 @@ class JobPoster:
                         path=f"error_step2_skill_{safe_name}.png", full_page=True
                     )
 
-        # 7. Additional Requirements (rich text editor inside a modal) - same
-        # widget and Save/close-verification pattern as "Other Benefits" in
-        # fill_compensation_and_benefits: walk forward in document order from
-        # the modal's own heading so we land on THIS editor/Save button, not
-        # some other hidden one elsewhere in the DOM.
         if extra_requirements := job_data.get("additional_requirements"):
             try:
                 print("Step 2: opening Additional Requirements modal...")
 
-                # BUG FIX (this run - "additional requirements still 0%"):
-                # the DIAGNOSTIC DUMP confirmed the real button was found
-                # correctly, and it also confirmed WHY clicking it never
-                # opened the modal - a leftover `button.location-option`
-                # element from Step 1's Job Location field was still
-                # intercepting pointer events at that spot. The old
-                # force=True fallback didn't help, because force=True only
-                # skips PLAYWRIGHT's own actionability checks; it doesn't
-                # change which element the real browser click is delivered
-                # to, and the browser delivers it to whatever's topmost -
-                # the same stray element, not the button underneath it.
-                # Clear that away first.
                 await self._dismiss_stray_overlays()
 
                 open_btn_all = self.page.get_by_text("Add Additional Requirements", exact=False)
@@ -1485,11 +1146,6 @@ class JobPoster:
 
                 await self.page.wait_for_timeout(800)
 
-                # BUG FIX: widen beyond Quill (.ql-editor) - we don't
-                # actually know which rich-text library this specific modal
-                # uses, and guessing a single class name twice hasn't held
-                # up. Try the common alternatives, plus a plain <textarea>
-                # in case this modal is simpler than Step 1's editors.
                 editor = self.page.locator(
                     ".ql-editor:visible, [contenteditable='true']:visible, "
                     ".ProseMirror:visible, .tox-edit-area:visible, "
@@ -1597,24 +1253,7 @@ class JobPoster:
             "Years of experience": job_data.get("restrict_experience"),
         }
 
-        # BUG FIX #11 (this run - "Age never turns on, Gender/Years both
-        # do, no error, no disabled flag"): the switch markup for the
-        # failed Age click still showed Angular's "ng-untouched ng-pristine"
-        # classes afterwards - meaning neither of our two click attempts
-        # ever actually reached the real <input>, not that the input
-        # rejected them. That's consistent with a transient overlay:
-        # right after the Step 2 -> Step 3 transition, the "Applicant
-        # Matching" panel (the "Strong" / "8/8" widget next to these
-        # cards) is still animating/recalculating for a beat, and Age -
-        # being the first card we touch, immediately after
-        # wait_for_text="Applicant Restriction" resolves - is the one
-        # most likely to still have something else on top of it at click
-        # time. Gender and Years only worked because by the time we got
-        # to them, Age's own ~800ms of retries had already run out the
-        # clock on that transition. Waiting for the matching-strength
-        # widget itself (not just the section heading) to be visible,
-        # plus a short settle pause, gives the whole panel time to finish
-        # rendering before ANY toggle is touched, regardless of order.
+
         try:
             await self.page.wait_for_selector(
                 "text=/\\d\\s*/\\s*\\d/", state="visible", timeout=8000
