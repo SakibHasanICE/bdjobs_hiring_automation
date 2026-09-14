@@ -1797,3 +1797,88 @@ class JobPoster:
                 await self.page.screenshot(path=f"error_step3_restrict_{safe_name}.png", full_page=True)
 
         return True
+
+    async def fill_step_4_contact_persons(self, job_data: dict) -> bool:
+        """Fills the final page's 'Related Recruitment/HR person for this
+        circular' card.
+
+        NOTE: the neighbouring 'Contact person for billing' card is
+        pre-filled by bdjobs itself and its inputs render read-only/greyed
+        out with a separate 'Change' flow next to them - there is nothing
+        for this method to type into there, so it's left untouched.
+        """
+        hr_contact = job_data.get("hr_contact")
+        if not hr_contact:
+            print("Step 4 - no 'hr_contact' data provided, skipping Recruitment/HR contact fields.")
+            return True
+
+        # Anchor to the card via its own heading text, same "find the
+        # nearest ancestor container" pattern used for the Step 3 restriction
+        # cards above, so a field fill can't accidentally land in the
+        # 'Contact person for billing' card sitting right next to it.
+        heading = self.page.locator(
+            "text='Related Recruitment/HR person for this circular'"
+        ).first
+        await heading.wait_for(state="visible", timeout=10000)
+        card = heading.locator("xpath=ancestor::*[self::div][1]").first
+
+        # (job_data key, on-screen placeholder text)
+        field_map = [
+            ("name", "Contact Person for this job"),
+            ("designation", "Designation"),
+            ("email", "Email Address"),
+            ("mobile", "Mobile Number"),
+        ]
+
+        for key, placeholder_text in field_map:
+            value = hr_contact.get(key)
+            if not value:
+                print(f"Step 4 - hr_contact['{key}'] not provided, skipping '{placeholder_text}'.")
+                continue
+
+            input_el = card.locator(f"input[placeholder*='{placeholder_text}']").first
+            if await input_el.count() == 0:
+                print(
+                    f"Step 4 - couldn't find an input for '{placeholder_text}' via placeholder "
+                    f"text inside the HR contact card; skipping this field."
+                )
+                continue
+
+            await input_el.scroll_into_view_if_needed()
+            await input_el.click(force=True)
+            await input_el.fill(str(value))
+
+        return True
+
+    async def save_as_draft(self) -> bool:
+        """Clicks the 'Save' button on the final page to store the circular
+        as a draft.
+
+        Deliberately targets an EXACT 'Save' match rather than a substring -
+        the same page also has a 'Publish now' button right next to it,
+        which is a much more consequential, non-reversible action. An
+        exact-text match keeps this from ever accidentally landing on that
+        button instead.
+        """
+        save_btn = self.page.get_by_text(re.compile(r"^\s*Save\s*$", re.IGNORECASE)).first
+
+        if await save_btn.count() == 0:
+            await self.page.screenshot(path="error_no_save_button.png", full_page=True)
+            raise RuntimeError(
+                "No 'Save' button found on the final page - the page may be in an "
+                "unexpected state. Saved error_no_save_button.png."
+            )
+
+        await save_btn.scroll_into_view_if_needed()
+
+        is_enabled = await save_btn.is_enabled()
+        aria_disabled = await save_btn.get_attribute("aria-disabled")
+        print(f"save_as_draft: Save button is_enabled={is_enabled} aria-disabled={aria_disabled}")
+
+        await save_btn.click(force=True)
+
+        await self.page.wait_for_load_state("networkidle")
+        await self.page.wait_for_timeout(2000)
+        await self.page.screenshot(path="debug_after_save_draft.png", full_page=True)
+
+        return True

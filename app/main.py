@@ -101,6 +101,19 @@ async def test_workflow():
             "restrict_age": True,
             "restrict_gender": True,
             "restrict_experience": True,
+            # Step 4 (final page) - "Related Recruitment/HR person for this
+            # circular" card. NOTE: the "Contact person for billing" card
+            # next to it on the same page is pre-filled by bdjobs itself and
+            # its fields render read-only, so it's not represented here and
+            # JobPoster.fill_step_4_contact_persons leaves it untouched.
+            # Replace these placeholder values with the real HR/recruitment
+            # contact before running against a real posting.
+            "hr_contact": {
+                "name": "Nusrat Jahan",
+                "designation": "HR Executive",
+                "email": "hr@company.com",
+                "mobile": "01711223344",
+            },
         }
         
         # Each step is run independently: if one throws, we log it, save a
@@ -146,8 +159,19 @@ async def test_workflow():
         await poster.fill_step_3_matching_restrictions(mock_internal_job)
         print("Done: Matching & Restrictions")
 
-        # Pause so you can capture the next screen
-        await asyncio.sleep(10)
+        print("Advancing to Step 4...")
+        # Same "verify, don't trust the click blindly" pattern used for the
+        # earlier step transitions: confirm Step 4's own content (the
+        # Recruitment/HR contact card) is actually on screen first.
+        await poster.proceed_to_next_step(wait_for_text="Related Recruitment/HR person")
+
+        print("Filling Step 4: Recruitment/HR Contact Person...")
+        await poster.fill_step_4_contact_persons(mock_internal_job)
+        print("Done: Recruitment/HR Contact Person")
+
+        print("Saving job posting as draft...")
+        await poster.save_as_draft()
+        print("Saved as draft. Stopping here as requested.")
         
     except Exception as e:
         print(f"Workflow test failed: {e}")
