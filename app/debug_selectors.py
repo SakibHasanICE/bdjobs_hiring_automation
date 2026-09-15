@@ -13,7 +13,7 @@ async def debug_dom():
     try:
         await manager.initialize()
         page = await manager.new_page()
-        page.set_default_timeout(15000)  # fail fast instead of 60s
+        page.set_default_timeout(15000)  
 
         auth = BDJobsAuth(page)
         await auth.login(os.getenv("BDJOBS_USER"), os.getenv("BDJOBS_PASS"))
@@ -22,9 +22,6 @@ async def debug_dom():
         await poster.navigate_to_post_job()
         await poster.fill_step_1_basic_info({"title": "Debug Test", "vacancies": 1})
 
-        # --- 1. Job Location dropdown: find every leaf element whose text is
-        # exactly "Dhaka" anywhere in the document (covers portal/overlay panels
-        # that aren't nested inside the input's own parent chain). ---
         trigger = page.get_by_text("Add more", exact=False).first
         await trigger.click(force=True)
         await page.wait_for_timeout(500)
@@ -59,9 +56,6 @@ async def debug_dom():
         print("\n===== ELEMENTS WITH TEXT 'Dhaka' =====")
         print(json.dumps(location_matches, indent=2))
 
-        # --- 2. Monthly Salary inputs: find EVERY input with placeholder
-        # 'Minimum' / 'Maximum' in the whole document, and whether each is
-        # actually visible - tells us if we're grabbing a hidden duplicate. ---
         salary_matches = await page.evaluate("""
             () => {
                 const out = [];
