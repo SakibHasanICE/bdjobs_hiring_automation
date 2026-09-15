@@ -14,7 +14,7 @@ async def test_workflow():
         await manager.initialize()
         page = await manager.new_page()
         
-        # Extends the default global timeout to 60 seconds to prevent early failures on slow connections
+      
         page.set_default_timeout(60000)
         
         auth = BDJobsAuth(page)
@@ -29,19 +29,7 @@ async def test_workflow():
         
         print("Filling Step 1: Job Information...")
         
-        # Updated with data extracted from BDjobs_Posting_Template.xlsx
-        #
-        # NOTE on coverage: every key below IS actually read and filled by a
-        # JobPoster method (confirmed against job_poster.py's job_data.get(...)
-        # calls) - EXCEPT these four, which are kept here as reference/context
-        # only because no fill method currently targets them on the real form:
-        #   - job_id                (internal tracking id, not a form field)
-        #   - specialization        (no fill_* step wires this to any input yet)
-        #   - resume_receiver_email (no fill_* step wires this to any input yet)
-        #   - job_context           (no fill_* step wires this to any input yet)
-        # If the real form has inputs for specialization / resume receiver
-        # email / job context, JobPoster needs new fill methods for them
-        # first - adding the key here alone won't make them appear on screen.
+       
         mock_internal_job = {
             "job_id": "JOB-2026-00129",
             "title": "Senior Software Engineer (Python)",
@@ -67,13 +55,7 @@ async def test_workflow():
             "skills": ["Python", "Django", "FastAPI", "PostgreSQL", "Docker"],
             "job_context": "We are looking for an experienced Python developer to scale our core platform.",
             "job_responsibilities": "- Build scalable backend REST APIs using FastAPI/Django\n- Optimize PostgreSQL databases\n- Collaborate with frontend and mobile teams\n- Write unit and integration tests",
-            # BUG FIX: "additional_requirements" was previously defined TWICE
-            # in this dict (once here, once further down). Python dict
-            # literals silently keep only the LAST occurrence of a repeated
-            # key, so the first sentence ("Must have strong problem-solving
-            # skills...") was being thrown away with no warning - it never
-            # reached the form at all. Merged into one value so both parts
-            # actually get typed into the Additional Requirements editor.
+
             "additional_requirements": (
                 "- 3+ years experience with Python & PostgreSQL\n"
                 "- Experience with Docker and CI/CD pipelines\n"
@@ -93,21 +75,11 @@ async def test_workflow():
                 "other_benefits": "Annual team retreat and a learning stipend for courses and certifications."
             },
             "job_location": "Dhaka",
-            # Step 3 - Applicant Restriction: each of these is a plain
-            # boolean toggle (Restrict on/off), not a value to type. True
-            # switches it ON; False/omitted leaves it exactly as the form
-            # already has it (off by default) - see
-            # JobPoster.fill_step_3_matching_restrictions for the logic.
+
             "restrict_age": True,
             "restrict_gender": True,
             "restrict_experience": True,
-            # Step 4 (final page) - "Related Recruitment/HR person for this
-            # circular" card. NOTE: the "Contact person for billing" card
-            # next to it on the same page is pre-filled by bdjobs itself and
-            # its fields render read-only, so it's not represented here and
-            # JobPoster.fill_step_4_contact_persons leaves it untouched.
-            # Replace these placeholder values with the real HR/recruitment
-            # contact before running against a real posting.
+ 
             "hr_contact": {
                 "name": "Nusrat Jahan",
                 "designation": "HR Executive",
@@ -116,9 +88,7 @@ async def test_workflow():
             },
         }
         
-        # Each step is run independently: if one throws, we log it, save a
-        # screenshot of exactly that failure, and still attempt the rest -
-        # instead of one bad locator silently cancelling everything downstream.
+
         step_sequence = [
             ("Basic Info", poster.fill_step_1_basic_info),
             ("Options", poster.fill_step_1_options),
@@ -140,9 +110,7 @@ async def test_workflow():
 
         print("Finished attempting all Step 1 fields (see log above for any failures).")
         
-        print("Advancing to Step 2...")
-        # wait_for_text verifies the click actually landed on Step 2 (rather than,
-        # say, a modal from Step 1 swallowing it) before we try to fill anything.
+
         await poster.proceed_to_next_step(wait_for_text="Preferred Gender")
 
         print("Filling Step 2: Candidate Requirements...")
@@ -150,9 +118,7 @@ async def test_workflow():
         print("Successfully interacted with Step 2 fields.")
 
         print("Advancing to Step 3...")
-        # Same "verify, don't trust the click blindly" pattern used for the
-        # Step 1 -> 2 transition above: confirm Step 3's own content is
-        # actually on screen before we try to interact with it.
+      
         await poster.proceed_to_next_step(wait_for_text="Applicant Restriction")
 
         print("Filling Step 3: Matching & Restrictions...")
@@ -160,9 +126,7 @@ async def test_workflow():
         print("Done: Matching & Restrictions")
 
         print("Advancing to Step 4...")
-        # Same "verify, don't trust the click blindly" pattern used for the
-        # earlier step transitions: confirm Step 4's own content (the
-        # Recruitment/HR contact card) is actually on screen first.
+  
         await poster.proceed_to_next_step(wait_for_text="Related Recruitment/HR person")
 
         print("Filling Step 4: Recruitment/HR Contact Person...")

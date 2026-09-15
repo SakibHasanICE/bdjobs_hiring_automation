@@ -44,7 +44,7 @@ class JobPoster:
     async def fill_step_1_complex_fields(self, job_data: dict) -> bool:
         """Handles custom dropdowns and date pickers in Step 1."""
         
-        # 1. Job Category Dropdown (Keyboard Strategy)
+
         if category := job_data.get("category"):
             dropdown_placeholder = "text='Choose a Job Category'"
             
@@ -56,7 +56,7 @@ class JobPoster:
             await self.page.wait_for_timeout(1000)
             await self.page.keyboard.press("Enter")
 
-        # 2. Job Location Dropdown (Structural Locator)
+     
         if location := job_data.get("job_location"):
 
             trigger = self.page.get_by_text("Add more", exact=False).first
@@ -67,7 +67,7 @@ class JobPoster:
             await trigger.click(force=True)
             await self.page.wait_for_timeout(500)
 
-            # Re-locate the input now that the widget is active - it should be visible
+
             loc_input = self.page.locator(
                 "input#jobLocation, input[formcontrolname='LocationSearchString']"
             ).first
@@ -88,7 +88,7 @@ class JobPoster:
 
             await self._dismiss_stray_overlays()
             
-        # 3. Select Deadline (Date Picker)
+    
         if deadline := job_data.get("deadline"):
             deadline_input_selector = "input[placeholder*='Select Deadline']"
             deadline_input = self.page.locator(deadline_input_selector).first
@@ -236,7 +236,7 @@ class JobPoster:
     async def fill_step_1_details(self, job_data: dict) -> bool:
         """Fills job responsibilities and salary information in Step 1."""
         
-        # 1. Job Responsibilities & Context
+   
         if resp := job_data.get("job_responsibilities"):
 
             editor = self.page.locator(
@@ -276,7 +276,7 @@ class JobPoster:
         if not comp:
             return True
 
-        # Open the modal
+     
         add_btn = self.page.get_by_text("Add compensation and benefit information", exact=False).first
         await add_btn.scroll_into_view_if_needed()
         await add_btn.click(force=True)
@@ -291,14 +291,14 @@ class JobPoster:
             else:
                 print(f"Compensation chip not found, skipped: {label}")
 
-        # 2. Lunch Facility (single-select: Partially subsidize / Full Subsidize)
+
         if lunch := comp.get("lunch_facility"):
             print(f"Compensation modal: selecting lunch facility '{lunch}'...")
             option = self.page.get_by_text(lunch, exact=True).first
             if await option.count() > 0:
                 await option.click(force=True)
 
-        # 3. Salary Review (single-select: Half Yearly / Yearly)
+
         if review := comp.get("salary_review"):
             print(f"Compensation modal: selecting salary review '{review}'...")
             option = self.page.get_by_text(review, exact=True).first
@@ -450,7 +450,6 @@ class JobPoster:
             await self.page.wait_for_timeout(1500)
             await self.page.screenshot(path="debug_1500ms_after_continue_click.png", full_page=True)
 
-            # Wait for the next step's UI to load and stabilize
             await self.page.wait_for_load_state("networkidle")
             await self.page.wait_for_timeout(2000)
 
@@ -524,8 +523,7 @@ class JobPoster:
                 state="hidden", timeout=3000
             )
         except Exception:
-            # Either already gone, or genuinely stuck - don't hang the rest
-            # of the run over a single cleanup step either way.
+   
             pass
         await self.page.wait_for_timeout(200)
 
@@ -580,7 +578,7 @@ class JobPoster:
                 if len(candidate) <= 60:
                     best_text = candidate
                 else:
-                    break  # too big to be a single chip - keep the last good one
+                    break  
             if best_text:
                 texts.add(best_text.lower())
         return texts
@@ -682,7 +680,7 @@ class JobPoster:
             return
 
         removed_count = 0
-        for _ in range(20):  # hard ceiling so a wrong locator can't loop forever
+        for _ in range(20):  
             remove_btn = container.locator(
                 "button:has-text('×'), button:has-text('X'), "
                 "[class*='remove' i], [class*='close' i], svg[class*='close' i]"
@@ -887,7 +885,6 @@ class JobPoster:
                 "modal was still open and intercepted it). Saved error_step2_not_loaded.png."
             ) from e
 
-        # 1. Preferred Gender
         if gender := job_data.get("gender"):
             try:
   
@@ -901,7 +898,6 @@ class JobPoster:
                 print(f"Step 2 - Preferred Gender FAILED: {e}")
                 await self.page.screenshot(path="error_step2_gender.png", full_page=True)
 
-        # 2. Age Limits
         if age := job_data.get("age"):
             if min_age := age.get("min"):
                 try:
@@ -985,7 +981,7 @@ class JobPoster:
                 print(f"Step 2 - Education Level FAILED: {e}")
                 await self.page.screenshot(path="error_step2_education.png", full_page=True)
 
-        # 4. Experience Requirements
+     
         if exp := job_data.get("experience"):
             try:
                 wants_experience = exp.get("required", True)
@@ -1155,14 +1151,7 @@ class JobPoster:
                 try:
                     await editor.wait_for(state="visible", timeout=8000)
                 except Exception:
-                    # DIAGNOSTIC: last run's dump came back completely empty
-                    # ('[]') even for something as generic as 'textarea'
-                    # across the WHOLE page - that points to the click not
-                    # opening anything at all, rather than an editor-selector
-                    # problem. This version also reports non-visible matches
-                    # and a screenshot, so we can tell "genuinely nothing
-                    # opened" apart from "opened but our isVisible() check is
-                    # wrong" (e.g. animating in, zero-size wrapper, etc.).
+ 
                     dump = await self.page.evaluate("""
                     () => {
                         const isVisible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
@@ -1194,11 +1183,6 @@ class JobPoster:
                 await self.page.keyboard.type(extra_requirements, delay=15)
                 await self.page.wait_for_timeout(300)
 
-                # Confirm the text actually landed before trying to save -
-                # fail loudly here rather than clicking Save on an empty box.
-                # contenteditable-style editors expose text via inner_text();
-                # a plain <textarea> (now included since we widened the
-                # selector) exposes it via input_value() instead - try both.
                 typed_text = (await editor.inner_text()).strip()
                 if not typed_text:
                     try:
@@ -1271,26 +1255,7 @@ class JobPoster:
                 print(f"Step 3 - '{label}' restriction not requested, leaving switch as-is.")
                 continue
             try:
-                # BUG FIX #8 (this run - "only Years of experience actually
-                # toggles; Age and Gender silently do nothing"): the old
-                # `heading` lookup searched the ENTIRE page for exact text
-                # '{label}' and took `.first`. The Step 3 summary panel
-                # ABOVE these cards (confirmed in your screenshot) shows the
-                # submitted criteria using the SAME bare words - a bold
-                # "Age" label over "24-38 Years", a bold "Gender" label over
-                # "Only Male" - and that panel sits earlier in the DOM than
-                # the actual restriction cards. So `.first` kept grabbing
-                # the summary panel's "Age"/"Gender" label (which has no
-                # "Restrict" toggle anywhere near it) instead of the real
-                # card. "Years of experience" only worked because the
-                # summary panel phrases that one differently ("Total Year
-                # of Experience"), so there was no collision for it.
-                #
-                # Fix: anchor to the "Applicant Restriction" section header
-                # first (that heading is unique on the page), scope every
-                # per-card lookup to ONLY the container below it, and only
-                # THEN search for '{label}' - so the summary panel above can
-                # never be matched at all, no matter what text it repeats.
+   
                 section = self.page.locator(
                     "xpath=//*[normalize-space(text())='Applicant Restriction']"
                     "/following::*[self::div][1]"
@@ -1301,11 +1266,7 @@ class JobPoster:
                     f"xpath=.//*[normalize-space(text())='{label}']"
                 ).first
                 await heading.wait_for(state="visible", timeout=8000)
-                # All three cards share the identical "Restrict" label text,
-                # so within the section we still anchor to THIS card's own
-                # heading, then walk up to the nearest ancestor that also
-                # contains this card's own "Restrict" text - that keeps the
-                # toggle lookup from grabbing a sibling card's switch.
+
                 card = heading.locator(
                     "xpath=ancestor::*[.//text()[normalize-space()='Restrict']][1]"
                 ).first
@@ -1316,25 +1277,7 @@ class JobPoster:
                 ).first
                 await toggle.scroll_into_view_if_needed()
 
-                # BUG FIX #10 (this run - "Gender and Years both turn on now,
-                # Age still doesn't, no error is thrown"): the scoping fix
-                # got every card's toggle correctly resolved, so this is a
-                # different, Age-specific problem. Two real possibilities
-                # that look identical from a print statement alone: (a) this
-                # particular switch is disabled client-side for some reason
-                # (a disabled native checkbox silently ignores a
-                # force=True click - force=True only skips PLAYWRIGHT's own
-                # checks, it can't make a genuinely disabled control
-                # respond), or (b) the click is landing on the switch TRACK
-                # div rather than the actual <input>, and this specific
-                # card's click handler happens to be bound to the visible
-                # "Restrict" text/label instead (a very common pattern:
-                # <label><input type=checkbox hidden><span>Restrict</span>
-                # </label>, where clicking the checkbox track directly does
-                # nothing but clicking the label text delegates to the
-                # input). Check for (a) explicitly first so it's not
-                # confused with (b), then try the label-text click as a
-                # second attempt before giving up.
+ 
                 is_disabled = False
                 try:
                     is_disabled = await toggle.is_disabled()
@@ -1355,11 +1298,7 @@ class JobPoster:
                     )
                     continue
 
-                # Some of these custom switches expose real checkbox state
-                # (is_checked works); others are just a styled <div>/<span>
-                # with an "active"/"checked"/"on" class instead - fall back
-                # to a class-name check rather than assuming one or the
-                # other and failing outright.
+
                 async def _read_toggle_state():
                     try:
                         return await toggle.is_checked()
@@ -1374,16 +1313,11 @@ class JobPoster:
                 await toggle.click(force=True)
                 await self.page.wait_for_timeout(400)
 
-                # Verify the click actually flipped it - same "don't trust a
-                # click blindly" philosophy used everywhere else in this
-                # file (deadline calendar, compensation modal, etc.).
+
                 confirmed_on = await _read_toggle_state()
 
                 if not confirmed_on:
-                    # Fallback attempt: click the visible "Restrict" label
-                    # text within this same card instead of the switch
-                    # element itself - see BUG FIX #10 above for why that
-                    # can succeed where clicking the switch track doesn't.
+
                     print(f"Step 3 - '{label}' restriction: switch click didn't register; trying the 'Restrict' label text instead.")
                     restrict_label = card.get_by_text("Restrict", exact=True).first
                     if await restrict_label.count() > 0:
@@ -1392,18 +1326,7 @@ class JobPoster:
                         confirmed_on = await _read_toggle_state()
 
                 if not confirmed_on:
-                    # BUG FIX #11 (continued): both attempts above are
-                    # mouse-based clicks - Playwright's force=True skips
-                    # ITS OWN actionability checks, but the click is still
-                    # dispatched at the element's on-screen coordinates,
-                    # so a transient overlay physically on top of the
-                    # switch at that pixel can still swallow it (this is
-                    # exactly what the still-"ng-untouched ng-pristine"
-                    # class list on Age pointed to). A native JS
-                    # el.click() has no such blind spot - it calls the
-                    # DOM click() method directly, with no dependency on
-                    # screen position, so it lands on the real <input>
-                    # regardless of what's visually stacked above it.
+
                     print(f"Step 3 - '{label}' restriction: label click didn't register either; trying a native JS click.")
                     try:
                         await toggle.evaluate("el => el.click()")
@@ -1415,9 +1338,7 @@ class JobPoster:
                 if confirmed_on:
                     print(f"Step 3 - '{label}' restriction turned ON.")
                 else:
-                    # Dump the actual markup so the real cause (a third,
-                    # not-yet-considered possibility) is visible instead of
-                    # guessed at next time.
+
                     try:
                         toggle_html = await toggle.evaluate("el => el.outerHTML")
                     except Exception as dump_err:
@@ -1451,17 +1372,13 @@ class JobPoster:
             print("Step 4 - no 'hr_contact' data provided, skipping Recruitment/HR contact fields.")
             return True
 
-        # Anchor to the card via its own heading text, same "find the
-        # nearest ancestor container" pattern used for the Step 3 restriction
-        # cards above, so a field fill can't accidentally land in the
-        # 'Contact person for billing' card sitting right next to it.
         heading = self.page.locator(
             "text='Related Recruitment/HR person for this circular'"
         ).first
         await heading.wait_for(state="visible", timeout=10000)
         card = heading.locator("xpath=ancestor::*[self::div][1]").first
 
-        # (job_data key, on-screen placeholder text)
+
         field_map = [
             ("name", "Contact Person for this job"),
             ("designation", "Designation"),
