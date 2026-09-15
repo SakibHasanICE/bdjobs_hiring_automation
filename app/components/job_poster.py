@@ -3,6 +3,11 @@ import re
 from datetime import datetime
 from playwright.async_api import Page
 
+from common.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 class JobPoster:
     """Navigates the employer dashboard to publish job circulars."""
     def __init__(self, page: Page):
@@ -99,7 +104,7 @@ class JobPoster:
                 await calendar_icon.scroll_into_view_if_needed()
                 await calendar_icon.click(force=True)
             else:
-                print("Deadline calendar: icon.icon-calendar not found, falling back to clicking the input.")
+                logger.warning("Deadline calendar: icon.icon-calendar not found, falling back to clicking the input.")
                 await deadline_input.click(force=True)
 
             await self.page.wait_for_timeout(600)
@@ -165,12 +170,12 @@ class JobPoster:
                 """
             )
             if calendar_snapshot:
-                print(f"Deadline calendar: found {len(calendar_snapshot)} visible calendar-like element(s):")
+                logger.info(f"Deadline calendar: found {len(calendar_snapshot)} visible calendar-like element(s):")
                 for item in calendar_snapshot:
-                    print(f"--- matched by {item['selector']} ---")
-                    print(item["html"])
+                    logger.debug(f"--- matched by {item['selector']} ---")
+                    logger.debug(item["html"])
             else:
-                print(
+                logger.warning(
                     "Deadline calendar: no calendar-like overlay found after clicking the "
                     "input. It may not have opened at all, or use markup this scan doesn't "
                     "recognize - see debug_deadline_calendar_open.png."
@@ -228,7 +233,7 @@ class JobPoster:
                     f"{deadline} (aria-label '{target_aria_label}'). Saved "
                     f"error_deadline_not_set.png for inspection."
                 )
-            print(f"Deadline calendar: input now reads '{value}'.")
+            logger.info(f"Deadline calendar: input now reads '{value}'.")
 
         return True
 
@@ -282,32 +287,32 @@ class JobPoster:
         await add_btn.click(force=True)
         await self.page.wait_for_timeout(800)
 
-        print(f"Compensation modal: selecting benefit chips {comp.get('benefits', [])}...")
+        logger.info(f"Compensation modal: selecting benefit chips {comp.get('benefits', [])}...")
         for label in comp.get("benefits", []):
             chip = self.page.get_by_text(label, exact=True).first
             if await chip.count() > 0:
                 await chip.click(force=True)
                 await self.page.wait_for_timeout(200)
             else:
-                print(f"Compensation chip not found, skipped: {label}")
+                logger.warning(f"Compensation chip not found, skipped: {label}")
 
 
         if lunch := comp.get("lunch_facility"):
-            print(f"Compensation modal: selecting lunch facility '{lunch}'...")
+            logger.info(f"Compensation modal: selecting lunch facility '{lunch}'...")
             option = self.page.get_by_text(lunch, exact=True).first
             if await option.count() > 0:
                 await option.click(force=True)
 
 
         if review := comp.get("salary_review"):
-            print(f"Compensation modal: selecting salary review '{review}'...")
+            logger.info(f"Compensation modal: selecting salary review '{review}'...")
             option = self.page.get_by_text(review, exact=True).first
             if await option.count() > 0:
                 await option.click(force=True)
 
 
         if bonus := comp.get("festival_bonus"):
-            print(f"Compensation modal: selecting festival bonus '{bonus}'...")
+            logger.info(f"Compensation modal: selecting festival bonus '{bonus}'...")
             festival_select = self.page.locator(
                 "select:has(option:text-is('Select Number of Festival Bonus'))"
             ).first
@@ -318,27 +323,27 @@ class JobPoster:
                 try:
                     await festival_select.select_option(value=bonus_str)
                 except Exception as select_error:
-                    print(f"Could not select Festival Bonus '{bonus_str}': {select_error}")
+                    logger.warning(f"Could not select Festival Bonus '{bonus_str}': {select_error}")
 
 
         if other := comp.get("other_benefits"):
-            print("Compensation modal: locating Other Benefits editor...")
+            logger.info("Compensation modal: locating Other Benefits editor...")
             editor = self.page.locator(
                 "xpath=//*[contains(text(),'Other Benefits')]"
                 "/following::*[contains(@class,'ql-editor') or @contenteditable='true'][1]"
             ).first
             await editor.scroll_into_view_if_needed()
-            print("Compensation modal: Other Benefits editor is visible, filling it...")
+            logger.info("Compensation modal: Other Benefits editor is visible, filling it...")
             await editor.click(force=True)
             await editor.evaluate(
                 "(el, text) => { el.innerText = text; "
                 "el.dispatchEvent(new Event('input', { bubbles: true })); }",
                 other,
             )
-            print("Compensation modal: Other Benefits filled.")
+            logger.info("Compensation modal: Other Benefits filled.")
 
 
-        print("Compensation modal: locating Save button...")
+        logger.info("Compensation modal: locating Save button...")
         save_btn = self.page.locator(
             "xpath=//*[contains(text(),'Other Benefits')]"
             "/following::*[self::button or @role='button'][contains(text(),'Save')][1]"
@@ -351,9 +356,9 @@ class JobPoster:
         modal_check_target = editor if other else save_btn
         try:
             await modal_check_target.wait_for(state="hidden", timeout=5000)
-            print("Compensation modal: confirmed closed.")
+            logger.info("Compensation modal: confirmed closed.")
         except Exception:
-            print(
+            logger.warning(
                 "WARNING: Compensation modal may still be open after clicking Save."
                 "This will likely block the next 'Continue' click."
             )
@@ -379,16 +384,16 @@ class JobPoster:
         count = await candidates.count()
         visible_indices = [i for i in range(count) if await candidates.nth(i).is_visible()]
 
-        print(f"proceed_to_next_step: found {count} 'Continue/Next' matches, {len(visible_indices)} visible.")
+        logger.info(f"proceed_to_next_step: found {count} 'Continue/Next' matches, {len(visible_indices)} visible.")
         for i in range(count):
             el = candidates.nth(i)
             try:
                 text = (await el.inner_text()).strip().replace("\n", " ")[:40]
                 visible = await el.is_visible()
                 box = await el.bounding_box()
-                print(f"  [{i}] visible={visible} text={text!r} box={box}")
+                logger.debug(f"  [{i}] visible={visible} text={text!r} box={box}")
             except Exception as diag_err:
-                print(f"  [{i}] <could not inspect: {diag_err}>")
+                logger.warning(f"  [{i}] <could not inspect: {diag_err}>")
 
         if not visible_indices:
             await self.page.screenshot(path="error_no_continue_button.png", full_page=True)
@@ -402,9 +407,9 @@ class JobPoster:
 
         is_enabled = await continue_btn.is_enabled()
         aria_disabled = await continue_btn.get_attribute("aria-disabled")
-        print(f"proceed_to_next_step: Continue button is_enabled={is_enabled} aria-disabled={aria_disabled}")
+        logger.info(f"proceed_to_next_step: Continue button is_enabled={is_enabled} aria-disabled={aria_disabled}")
         if not is_enabled or aria_disabled == "true":
-            print(
+            logger.warning(
                 "WARNING: the Continue button appears disabled. The wizard likely has an "
                 "unmet validation requirement somewhere in Step 1 - force-clicking a "
                 "disabled control usually does nothing."
@@ -461,14 +466,14 @@ class JobPoster:
             self.page.remove_listener("console", _on_console)
 
         if failed_responses:
-            print(f"proceed_to_next_step: {len(failed_responses)} failed HTTP response(s) during transition:")
+            logger.warning(f"proceed_to_next_step: {len(failed_responses)} failed HTTP response(s) during transition:")
             for status, url, body in failed_responses:
-                print(f"  [{status}] {url}")
-                print(f"    body: {body[:1000]}")
+                logger.warning(f"  [{status}] {url}")
+                logger.warning(f"    body: {body[:1000]}")
         if console_errors:
-            print(f"proceed_to_next_step: {len(console_errors)} console/page error(s) during transition:")
+            logger.warning(f"proceed_to_next_step: {len(console_errors)} console/page error(s) during transition:")
             for err in console_errors:
-                print(f"  {err[:300]}")
+                logger.warning(f"  {err[:300]}")
 
         if wait_for_text:
             try:
@@ -630,7 +635,7 @@ class JobPoster:
                 if not panel_logged:
                     try:
                         snippet = (await candidate.inner_text())[:300].replace("\n", " | ")
-                        print(f"  [{label!r}] candidate panel #{panel_idx} options: {snippet!r}")
+                        logger.debug(f"  [{label!r}] candidate panel #{panel_idx} options: {snippet!r}")
                     except Exception:
                         pass
 
@@ -676,7 +681,7 @@ class JobPoster:
         """
         container = await self._get_tag_container(heading_text)
         if await container.count() == 0:
-            print(f"_clear_existing_tags: couldn't locate container for '{heading_text}', skipping clear.")
+            logger.warning(f"_clear_existing_tags: couldn't locate container for '{heading_text}', skipping clear.")
             return
 
         removed_count = 0
@@ -692,9 +697,9 @@ class JobPoster:
             removed_count += 1
 
         if removed_count:
-            print(f"_clear_existing_tags: removed {removed_count} pre-existing chip(s) under '{heading_text}'")
+            logger.info(f"_clear_existing_tags: removed {removed_count} pre-existing chip(s) under '{heading_text}'")
         else:
-            print(f"_clear_existing_tags: no pre-existing chips found under '{heading_text}'")
+            logger.info(f"_clear_existing_tags: no pre-existing chips found under '{heading_text}'")
 
     async def _add_tag_via_suggestion(self, value: str, open_trigger=None, input_locator=None, heading_text: str = None) -> None:
         """Types `value` into a tag/autocomplete field and CLICKS the matching
@@ -777,7 +782,7 @@ class JobPoster:
         if input_el is not None:
             actual_typed = (await input_el.input_value())
             if actual_typed != value:
-                print(f"  [_add_tag_via_suggestion:{value!r}] WARNING: input reads {actual_typed!r} after typing, not the full value")
+                logger.warning(f"  [_add_tag_via_suggestion:{value!r}] WARNING: input reads {actual_typed!r} after typing, not the full value")
 
 
         matched_text, matched_panel = await self._find_best_suggestion_match(
@@ -805,7 +810,7 @@ class JobPoster:
         try:
             await target_option.click(timeout=5000)
         except Exception as click_err:
-            print(f"  [_add_tag_via_suggestion:{value!r}] click on '{matched_text}' was intercepted ({click_err}); clearing overlays and retrying.")
+            logger.warning(f"  [_add_tag_via_suggestion:{value!r}] click on '{matched_text}' was intercepted ({click_err}); clearing overlays and retrying.")
             await self._dismiss_stray_overlays()
             await target_option.click(timeout=5000)
 
@@ -839,7 +844,7 @@ class JobPoster:
 
         if not committed and heading_text:
             
-            print(f"  [_add_tag_via_suggestion:{value!r}] click didn't commit; trying Enter as a fallback.")
+            logger.warning(f"  [_add_tag_via_suggestion:{value!r}] click didn't commit; trying Enter as a fallback.")
             await self.page.keyboard.press("Enter")
             await self.page.wait_for_timeout(400)
             for _ in range(10):  # ~2.5s total
@@ -895,7 +900,7 @@ class JobPoster:
                 await self.page.keyboard.type(gender, delay=100)
                 await self.page.keyboard.press("Enter")
             except Exception as e:
-                print(f"Step 2 - Preferred Gender FAILED: {e}")
+                logger.error(f"Step 2 - Preferred Gender FAILED: {e}")
                 await self.page.screenshot(path="error_step2_gender.png", full_page=True)
 
         if age := job_data.get("age"):
@@ -906,7 +911,7 @@ class JobPoster:
                     await self.page.keyboard.type(str(min_age), delay=100)
                     await self.page.keyboard.press("Enter")
                 except Exception as e:
-                    print(f"Step 2 - Minimum age FAILED: {e}")
+                    logger.error(f"Step 2 - Minimum age FAILED: {e}")
                     await self.page.screenshot(path="error_step2_min_age.png", full_page=True)
 
             if max_age := age.get("max"):
@@ -916,7 +921,7 @@ class JobPoster:
                     await self.page.keyboard.type(str(max_age), delay=100)
                     await self.page.keyboard.press("Enter")
                 except Exception as e:
-                    print(f"Step 2 - Maximum age FAILED: {e}")
+                    logger.error(f"Step 2 - Maximum age FAILED: {e}")
                     await self.page.screenshot(path="error_step2_max_age.png", full_page=True)
 
 
@@ -978,7 +983,7 @@ class JobPoster:
                     await add_degree_btn.click(force=True)
                     await self.page.wait_for_timeout(300)
             except Exception as e:
-                print(f"Step 2 - Education Level FAILED: {e}")
+                logger.error(f"Step 2 - Education Level FAILED: {e}")
                 await self.page.screenshot(path="error_step2_education.png", full_page=True)
 
      
@@ -999,7 +1004,7 @@ class JobPoster:
  
                 try:
                     active_class = await toggle.get_attribute("class") or ""
-                    print(f"Experience toggle '{toggle_text}' clicked, class='{active_class}'")
+                    logger.info(f"Experience toggle '{toggle_text}' clicked, class='{active_class}'")
                 except Exception:
                     pass
 
@@ -1051,7 +1056,7 @@ class JobPoster:
                                     await self.page.keyboard.press("Enter")
                             await self.page.wait_for_timeout(400)
                         except Exception as e:
-                            print(f"Step 2 - {label} Experience FAILED: {e}")
+                            logger.error(f"Step 2 - {label} Experience FAILED: {e}")
                             await self.page.screenshot(
                                 path=f"error_step2_{key}_experience.png", full_page=True
                             )
@@ -1061,7 +1066,7 @@ class JobPoster:
                             "Freshers can also apply", exact=False
                         ).first.click(force=True)
             except Exception as e:
-                print(f"Step 2 - Experience Requirements FAILED: {e}")
+                logger.error(f"Step 2 - Experience Requirements FAILED: {e}")
                 await self.page.screenshot(path="error_step2_experience.png", full_page=True)
 
 
@@ -1088,7 +1093,7 @@ class JobPoster:
                             heading_text=heading,
                         )
                 except Exception as e:
-                    print(f"Step 2 - Preferred Industry '{industry}' FAILED: {e}")
+                    logger.error(f"Step 2 - Preferred Industry '{industry}' FAILED: {e}")
                     safe_name = industry.lower().replace(" ", "_").replace("/", "_")
                     await self.page.screenshot(
                         path=f"error_step2_industry_{safe_name}.png", full_page=True
@@ -1110,7 +1115,7 @@ class JobPoster:
                         heading_text="Skills & Area of expertise",
                     )
                 except Exception as e:
-                    print(f"Step 2 - Skill '{skill}' FAILED: {e}")
+                    logger.error(f"Step 2 - Skill '{skill}' FAILED: {e}")
                     safe_name = skill.lower().replace(" ", "_").replace("/", "_")
                     await self.page.screenshot(
                         path=f"error_step2_skill_{safe_name}.png", full_page=True
@@ -1118,26 +1123,26 @@ class JobPoster:
 
         if extra_requirements := job_data.get("additional_requirements"):
             try:
-                print("Step 2: opening Additional Requirements modal...")
+                logger.info("Step 2: opening Additional Requirements modal...")
 
                 await self._dismiss_stray_overlays()
 
                 open_btn_all = self.page.get_by_text("Add Additional Requirements", exact=False)
                 btn_count = await open_btn_all.count()
                 if btn_count != 1:
-                    print(f"  NOTE: 'Add Additional Requirements' matched {btn_count} element(s), using the first.")
+                    logger.info(f"  NOTE: 'Add Additional Requirements' matched {btn_count} element(s), using the first.")
                 open_btn = open_btn_all.first
                 await open_btn.scroll_into_view_if_needed()
 
                 try:
                     await open_btn.click(timeout=5000)
                 except Exception as click_err:
-                    print(f"  NOTE: normal click on 'Add Additional Requirements' failed ({click_err}); clearing overlays and retrying.")
+                    logger.warning(f"  NOTE: normal click on 'Add Additional Requirements' failed ({click_err}); clearing overlays and retrying.")
                     await self._dismiss_stray_overlays()
                     try:
                         await open_btn.click(timeout=5000)
                     except Exception as click_err2:
-                        print(f"  NOTE: retry also failed ({click_err2}); trying force click as a last resort.")
+                        logger.warning(f"  NOTE: retry also failed ({click_err2}); trying force click as a last resort.")
                         await open_btn.click(force=True)
 
                 await self.page.wait_for_timeout(800)
@@ -1163,9 +1168,9 @@ class JobPoster:
                         return out;
                     }
                     """)
-                    print(f"Step 2 - Additional Requirements DIAGNOSTIC DUMP ({len(dump)} elements, visible or not): {dump}")
+                    logger.debug(f"Step 2 - Additional Requirements DIAGNOSTIC DUMP ({len(dump)} elements, visible or not): {dump}")
                     await self.page.screenshot(path="diagnostic_additional_requirements_after_click.png", full_page=True)
-                    print("Saved screenshot: diagnostic_additional_requirements_after_click.png")
+                    logger.info("Saved screenshot: diagnostic_additional_requirements_after_click.png")
                     raise RuntimeError(
                         "Additional Requirements editor never appeared - see "
                         "DIAGNOSTIC DUMP and screenshot above for the real modal structure."
@@ -1201,9 +1206,9 @@ class JobPoster:
 
                 try:
                     await editor.wait_for(state="hidden", timeout=5000)
-                    print("Step 2: Additional Requirements modal confirmed closed.")
+                    logger.info("Step 2: Additional Requirements modal confirmed closed.")
                 except Exception:
-                    print(
+                    logger.warning(
                         "WARNING: Additional Requirements modal may still be open after "
                         "clicking Save - this will likely block the next 'Continue' click."
                     )
@@ -1211,7 +1216,7 @@ class JobPoster:
                         path="warning_additional_requirements_modal_still_open.png", full_page=True
                     )
             except Exception as e:
-                print(f"Step 2 - Additional Requirements FAILED: {e}")
+                logger.error(f"Step 2 - Additional Requirements FAILED: {e}")
                 await self.page.screenshot(path="error_step2_additional_requirements.png", full_page=True)
 
         return True
@@ -1243,7 +1248,7 @@ class JobPoster:
                 "text=/\\d\\s*/\\s*\\d/", state="visible", timeout=8000
             )
         except Exception:
-            print(
+            logger.warning(
                 "Step 3 - matching-strength widget (e.g. '8/8') didn't show up "
                 "in time; continuing anyway, but the overlay/timing issue this "
                 "wait was meant to avoid may still bite."
@@ -1252,7 +1257,7 @@ class JobPoster:
 
         for label, should_restrict in restriction_map.items():
             if not should_restrict:
-                print(f"Step 3 - '{label}' restriction not requested, leaving switch as-is.")
+                logger.info(f"Step 3 - '{label}' restriction not requested, leaving switch as-is.")
                 continue
             try:
    
@@ -1285,7 +1290,7 @@ class JobPoster:
                     pass
                 aria_disabled = (await toggle.get_attribute("aria-disabled")) or ""
                 if is_disabled or aria_disabled.lower() == "true":
-                    print(
+                    logger.warning(
                         f"Step 3 - '{label}' restriction switch is DISABLED on the page "
                         f"itself (is_disabled={is_disabled}, aria-disabled={aria_disabled!r}). "
                         f"bdjobs is blocking this toggle client-side - this is not something "
@@ -1307,7 +1312,7 @@ class JobPoster:
                         return any(marker in css_class for marker in ("active", "checked", "-on", " on"))
 
                 if await _read_toggle_state():
-                    print(f"Step 3 - '{label}' restriction already ON, leaving as is.")
+                    logger.info(f"Step 3 - '{label}' restriction already ON, leaving as is.")
                     continue
 
                 await toggle.click(force=True)
@@ -1318,7 +1323,7 @@ class JobPoster:
 
                 if not confirmed_on:
 
-                    print(f"Step 3 - '{label}' restriction: switch click didn't register; trying the 'Restrict' label text instead.")
+                    logger.warning(f"Step 3 - '{label}' restriction: switch click didn't register; trying the 'Restrict' label text instead.")
                     restrict_label = card.get_by_text("Restrict", exact=True).first
                     if await restrict_label.count() > 0:
                         await restrict_label.click(force=True)
@@ -1327,23 +1332,23 @@ class JobPoster:
 
                 if not confirmed_on:
 
-                    print(f"Step 3 - '{label}' restriction: label click didn't register either; trying a native JS click.")
+                    logger.warning(f"Step 3 - '{label}' restriction: label click didn't register either; trying a native JS click.")
                     try:
                         await toggle.evaluate("el => el.click()")
                     except Exception as js_click_err:
-                        print(f"Step 3 - '{label}' restriction: native JS click raised {js_click_err}")
+                        logger.warning(f"Step 3 - '{label}' restriction: native JS click raised {js_click_err}")
                     await self.page.wait_for_timeout(400)
                     confirmed_on = await _read_toggle_state()
 
                 if confirmed_on:
-                    print(f"Step 3 - '{label}' restriction turned ON.")
+                    logger.info(f"Step 3 - '{label}' restriction turned ON.")
                 else:
 
                     try:
                         toggle_html = await toggle.evaluate("el => el.outerHTML")
                     except Exception as dump_err:
                         toggle_html = f"<could not read outerHTML: {dump_err}>"
-                    print(
+                    logger.warning(
                         f"Step 3 - '{label}' restriction WARNING: clicked the switch (and its "
                         f"label) but couldn't confirm it turned on. Switch markup:\n{toggle_html}"
                     )
@@ -1352,7 +1357,7 @@ class JobPoster:
                         full_page=True,
                     )
             except Exception as e:
-                print(f"Step 3 - '{label}' restriction FAILED: {e}")
+                logger.error(f"Step 3 - '{label}' restriction FAILED: {e}")
                 safe_name = label.lower().replace(" ", "_")
                 await self.page.screenshot(path=f"error_step3_restrict_{safe_name}.png", full_page=True)
 
@@ -1369,7 +1374,7 @@ class JobPoster:
         """
         hr_contact = job_data.get("hr_contact")
         if not hr_contact:
-            print("Step 4 - no 'hr_contact' data provided, skipping Recruitment/HR contact fields.")
+            logger.info("Step 4 - no 'hr_contact' data provided, skipping Recruitment/HR contact fields.")
             return True
 
         heading = self.page.locator(
@@ -1389,12 +1394,12 @@ class JobPoster:
         for key, placeholder_text in field_map:
             value = hr_contact.get(key)
             if not value:
-                print(f"Step 4 - hr_contact['{key}'] not provided, skipping '{placeholder_text}'.")
+                logger.info(f"Step 4 - hr_contact['{key}'] not provided, skipping '{placeholder_text}'.")
                 continue
 
             input_el = card.locator(f"input[placeholder*='{placeholder_text}']").first
             if await input_el.count() == 0:
-                print(
+                logger.warning(
                     f"Step 4 - couldn't find an input for '{placeholder_text}' via placeholder "
                     f"text inside the HR contact card; skipping this field."
                 )
@@ -1429,7 +1434,7 @@ class JobPoster:
 
         is_enabled = await save_btn.is_enabled()
         aria_disabled = await save_btn.get_attribute("aria-disabled")
-        print(f"save_as_draft: Save button is_enabled={is_enabled} aria-disabled={aria_disabled}")
+        logger.info(f"save_as_draft: Save button is_enabled={is_enabled} aria-disabled={aria_disabled}")
 
         await save_btn.click(force=True)
 

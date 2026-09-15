@@ -8,6 +8,7 @@ __pycache__/
 downloads/
 screenshots/
 logs/
+logs
 
 *.pdf
 *.doc
