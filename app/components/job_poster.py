@@ -639,7 +639,23 @@ class JobPoster:
                     except Exception:
                         pass
 
-                option_texts = [(await options.nth(idx).inner_text()).strip() for idx in range(option_count)]
+                # BUG FIX #6 (60s hang reading a single option): when the
+                # input never actually received the typed value (see BUG
+                # FIX #5), the dropdown can render its full unfiltered
+                # suggestion list instead of a short filtered one. A single
+                # option in that longer list occasionally sits detached or
+                # mid-render (e.g. behind virtual-scroll windowing) and
+                # inner_text() then auto-waits against the page's default
+                # 60s timeout, freezing the whole scan over one bad item.
+                # Bound each option's read to a short timeout and skip it on
+                # failure instead of blocking the loop.
+                option_texts = []
+                for idx in range(option_count):
+                    try:
+                        text = (await options.nth(idx).inner_text(timeout=1500)).strip()
+                    except Exception:
+                        continue
+                    option_texts.append(text)
 
                 for text in option_texts:
                     if text.lower() == value.lower():
@@ -776,13 +792,35 @@ class JobPoster:
 
             await self.page.wait_for_timeout(150)
 
-        await self.page.keyboard.type(value, delay=100)
-        await self.page.wait_for_timeout(150)
-
         if input_el is not None:
-            actual_typed = (await input_el.input_value())
-            if actual_typed != value:
-                logger.warning(f"  [_add_tag_via_suggestion:{value!r}] WARNING: input reads {actual_typed!r} after typing, not the full value")
+            # BUG FIX #5 (empty input after typing - "Django"/"FastAPI"/
+            # "PostgreSQL" observed with input_value() == '' right after
+            # typing): a stray re-render right after the PREVIOUS tag's chip
+            # commits can occasionally eat the very next value typed via the
+            # global keyboard. Rather than pressing on and searching for
+            # suggestions against a value that was never actually entered
+            # (which just returns an unrelated/unfiltered suggestion list -
+            # and can hang for a long time scanning it, see BUG FIX #6
+            # below), detect this immediately and retry the click+clear+type
+            # sequence a couple of times before giving up.
+            actual_typed = ""
+            for typing_attempt in range(1, 4):
+                await self.page.keyboard.type(value, delay=100)
+                await self.page.wait_for_timeout(150)
+                actual_typed = await input_el.input_value()
+                if actual_typed == value:
+                    break
+                logger.warning(
+                    f"  [_add_tag_via_suggestion:{value!r}] WARNING: input reads {actual_typed!r} "
+                    f"after typing (attempt {typing_attempt}/3), not the full value; re-clicking and retyping."
+                )
+                await input_el.click(force=True)
+                await input_el.press("Control+A")
+                await input_el.press("Backspace")
+                await self.page.wait_for_timeout(200)
+        else:
+            await self.page.keyboard.type(value, delay=100)
+            await self.page.wait_for_timeout(150)
 
 
         matched_text, matched_panel = await self._find_best_suggestion_match(
@@ -865,6 +903,11 @@ class JobPoster:
                 f"Suggestion for '{value}' was found ('{matched_text}') and clicked, "
                 f"but no matching chip appeared - no chip appears to have been committed."
             )
+
+        # Small settle buffer before the caller starts the next tag - helps
+        # avoid the very next call's typing landing during this widget's own
+        # post-commit re-render (see BUG FIX #5 above).
+        await self.page.wait_for_timeout(300)
 
     async def fill_step_2_candidate_requirements(self, job_data: dict) -> bool:
         """Fills out the Candidate Requirements form (Step 2) using keyboard simulation.
